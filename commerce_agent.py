@@ -24,34 +24,70 @@ COMPANIES = {
     "AMZN": "亚马逊",
     "JD": "京东"
 }
+# 常用世界银行指标代码对照表(中文名 -> 世界银行官方指标代码)
+# 需要更多指标时，可以去 https://data.worldbank.org 搜索后往这里添加
+MACRO_INDICATORS = {
+    "互联网普及率": "IT.NET.USER.ZS",
+    "GDP总量": "NY.GDP.MKTP.CD",
+    "人均GDP": "NY.GDP.PCAP.CD",
+    "人口总量": "SP.POP.TOTL",
+    "通货膨胀率": "FP.CPI.TOTL.ZG",
+    "失业率": "SL.UEM.TOTL.ZS",
+    "出口总额": "NE.EXP.GNFS.CD",
+    "人均能源消费量": "EG.USE.PCAP.KG.OE",
+}
+# 常用国家中文名 -> ISO三位代码对照表(应对AI可能传中文名而非代码的情况)
+COUNTRY_CODE_MAP = {
+    "中国": "CHN", "美国": "USA", "英国": "GBR", "德国": "DEU",
+    "法国": "FRA", "日本": "JPN", "印度": "IND", "巴西": "BRA",
+    "俄罗斯": "RUS", "韩国": "KOR", "加拿大": "CAN", "澳大利亚": "AUS",
+}
 
+def normalize_country_code(country):
+    """把国家标识安全转换成ISO三位代码：已经是代码就直接用，是中文名就查表转换"""
+    country = country.strip()
+    if len(country) == 3 and country.isalpha():
+        return country.upper()   # 看起来已经是ISO代码，直接使用
+    return COUNTRY_CODE_MAP.get(country, None)   # 尝试从中文名转换，转不了返回None
 # ============ 工具1：宏观趋势 - 目标市场互联网普及率 ============
-def get_macro_trend():
-    """查询跨境电商核心目标市场的互联网普及率趋势"""
-    countries = ["USA", "GBR", "DEU", "BRA"]
-    country_names = {"USA": "美国", "GBR": "英国", "DEU": "德国", "BRA": "巴西"}
+def get_macro_trend(indicator_name, countries):
+    indicator_code = MACRO_INDICATORS.get(indicator_name)
+    if not indicator_code:
+        return {
+            "错误": f"暂不支持指标'{indicator_name}'",
+            "可选指标": list(MACRO_INDICATORS.keys())
+        }
 
-    data = wb.data.DataFrame("IT.NET.USER.ZS", countries, mrv=10)
+    # 安全转换国家代码，过滤掉转换失败的
+    normalized_countries = []
+    for c in countries:
+        code = normalize_country_code(c)
+        if code:
+            normalized_countries.append(code)
+
+    if not normalized_countries:
+        return {"错误": f"无法识别提供的国家：{countries}，请使用ISO三位代码，如 USA、CHN"}
+
+    data = wb.data.DataFrame(indicator_code, normalized_countries, mrv=10)
     data_clean = data.T
-    data_clean = data_clean.rename(columns=country_names)
     data_clean.index = data_clean.index.str.replace("YR", "").astype(int)
     data_clean = data_clean.dropna(how="all")
 
     plt.figure(figsize=(10, 5))
     for country in data_clean.columns:
         plt.plot(data_clean.index, data_clean[country], label=country, marker='o')
-    plt.title("主要市场互联网普及率趋势(%)")
+    plt.title(f"{indicator_name}趋势对比")
     plt.xlabel("年份")
-    plt.ylabel("互联网普及率(%)")
+    plt.ylabel(indicator_name)
     plt.legend()
-    plt.savefig("macro_internet_trend.png")
+    plt.savefig("macro_trend_chart.png")
     plt.close()
 
     latest = data_clean.iloc[-1].to_dict()
     return {
-        "说明": "跨境电商目标市场互联网普及率(反映线上购物潜力)",
-        "最新普及率": {k: round(v, 1) for k, v in latest.items()},
-        "图表": "macro_internet_trend.png"
+        "指标": indicator_name,
+        "最新数值": {k: round(v, 2) if pd.notna(v) else None for k, v in latest.items()},
+        "图表": "macro_trend_chart.png"
     }
 
 # ============ 工具2：多公司股价横向对比(归一化) ============
@@ -143,8 +179,22 @@ tools = [
         "type": "function",
         "function": {
             "name": "get_macro_trend",
-            "description": "查询跨境电商核心目标市场(美国/英国/德国/巴西)的互联网普及率宏观趋势，反映线上购物市场潜力",
-            "parameters": {"type": "object", "properties": {}}
+            "description": "查询任意国家的宏观经济/社会指标趋势，如GDP、人口、互联网普及率、通胀率等",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "indicator_name": {
+                        "type": "string",
+                        "description": "指标名称，可选：互联网普及率、GDP总量、人均GDP、人口总量、通货膨胀率、失业率、出口总额"
+                    },
+                    "countries": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "指标名称，可选：互联网普及率、GDP总量、人均GDP、人口总量、通货膨胀率、失业率、出口总额、人均能源消费量"
+                    }
+                },
+                "required": ["indicator_name", "countries"]
+            }
         }
     },
     {
@@ -188,13 +238,20 @@ tools = [
 def clean_ai_output(text):
     if text is None:
         return "抱歉，模型这次没有返回有效内容，请重新提问一次。"
+    
+    # 检测模型是否输出了伪造的工具调用格式(而不是走真正的function calling)
+    # 这种情况下内容本身没有参考价值，直接提示用户重试
+    suspicious_patterns = ["<TOOLCALL>", "toolbench_rapidapi_key"]
+    if any(pattern in text for pattern in suspicious_patterns):
+        return "⚠️ 本次模型返回格式异常(可能是免费模型不稳定导致)，请重新提问一次，或换一种问法。"
+    
     markers = ["<channel|>", "</think>"]
     for marker in markers:
         if marker in text:
             text = text.split(marker)[-1].strip()
     return text
 FUNCTION_MAP = {
-    "get_macro_trend": lambda args: get_macro_trend(),
+    "get_macro_trend": lambda args: get_macro_trend(args["indicator_name"], args["countries"]),
     "compare_companies": lambda args: compare_companies(),
     "company_deep_dive": lambda args: company_deep_dive(args["ticker"]),
     "analyze_correlation": lambda args: analyze_correlation(args["ticker1"], args["ticker2"]),
@@ -205,7 +262,7 @@ conversation_history = [
     {
         "role": "system",
         "content": (
-            "你是一位专注跨境电商行业的资深行研分析师助手。"
+            "你是一位资深行研分析师助手，擅长宏观趋势、公司对比、财务分析与相关性研究。"
             "回答时只使用工具返回的真实数据，不要编造任何数字或单位。"
             "回答要简洁、专业，体现分析逻辑，适合放进行业研究报告。"
             "统计术语必须准确：相关系数(-1到1)只表示线性关系的方向和强弱，不能解释为'概率'或'百分之多少概率同向变动'；"

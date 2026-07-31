@@ -16,8 +16,8 @@ client = OpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY"),
 )
 
-st.title("跨境电商行业研究 Agent")
-st.write("输入你的问题，AI会自动调用工具查询真实数据并回答")
+st.title("行业与公司研究 Agent")
+st.write("输入你的问题，AI会自动调用工具查询真实数据、分析趋势并回答")
 
 # ============ 用 session_state 保存对话历史（网页刷新也不会丢失，直到手动清空）============
 if "messages" not in st.session_state:
@@ -25,7 +25,7 @@ if "messages" not in st.session_state:
         {
             "role": "system",
             "content": (
-                "你是一位专注跨境电商行业的资深行研分析师助手。"
+                "你是一位资深行研分析师助手，擅长宏观趋势、公司对比、财务分析与相关性研究。"
                 "回答时只使用工具返回的真实数据，不要编造任何数字或单位。"
                 "统计术语必须准确，相关系数不能解释为概率。"
             )
@@ -34,7 +34,7 @@ if "messages" not in st.session_state:
 
 # ============ 把历史对话都显示在网页上 ============
 for msg in st.session_state.messages:
-    if msg["role"] in ("user", "assistant"):
+    if msg["role"] in ("user", "assistant") and msg.get("content"):
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
@@ -63,7 +63,7 @@ if user_input:
                 st.caption(f"🔧 调用工具：{function_name}({function_args})")
                 result = FUNCTION_MAP[function_name](function_args)
 
-                st.session_state.messages.append(ai_message)
+                st.session_state.messages.append(ai_message.model_dump())
                 st.session_state.messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
