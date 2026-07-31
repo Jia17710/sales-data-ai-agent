@@ -56,6 +56,16 @@ pip install -r requirements.txt
 ```bash
 python3 commerce_agent.py
 ```
+## 网页界面（Streamlit）
+
+除了命令行运行，也提供了网页聊天界面：
+
+```bash
+streamlit run app.py
+```
+
+运行后自动打开浏览器（默认地址 http://localhost:8501），可以直接在聊天框输入问题，
+无需查看代码或终端输出，交互体验更接近真实产品。
 
 ## 开发过程中发现并解决的真实问题
 
