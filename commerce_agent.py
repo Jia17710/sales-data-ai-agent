@@ -186,7 +186,8 @@ tools = [
     }
 ]
 def clean_ai_output(text):
-    """清洗AI输出中可能泄漏的思考过程标记"""
+    if text is None:
+        return "抱歉，模型这次没有返回有效内容，请重新提问一次。"
     markers = ["<channel|>", "</think>"]
     for marker in markers:
         if marker in text:
